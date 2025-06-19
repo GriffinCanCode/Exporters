@@ -1,0 +1,14 @@
+Mypy Type Check Coverage Summary
+================================
+
+Script: index
+
++------------+-------------------+----------+
+| Module     | Imprecision       | Lines    |
++------------+-------------------+----------+
+| beautifier |   4.23% imprecise | 1299 LOC |
+| documenter |  25.62% imprecise |  320 LOC |
+| ui         |  55.67% imprecise |  406 LOC |
++------------+-------------------+----------+
+| Total      |  17.93% imprecise | 2025 LOC |
++------------+-------------------+----------+

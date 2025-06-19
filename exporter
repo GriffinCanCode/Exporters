@@ -1,0 +1,427 @@
+#!/Users/griffinstrier/custom/.venv/bin/python
+
+import os
+import sys
+import asyncio
+import shutil
+import subprocess
+from pathlib import Path
+
+# Add the parent directory to sys.path so we can import exporters
+script_dir = Path(__file__).parent.parent
+sys.path.insert(0, str(script_dir))
+
+from exporters.ui import ExporterUI
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import Progress, SpinnerColumn, TextColumn
+from typing import Dict, List, Optional, Tuple
+
+console = Console()
+
+# File extension to formatter mapping
+FILE_TYPE_FORMATTERS = {
+    # Python files
+    ".py": ["black", "isort", "ruff"],
+    # JavaScript/TypeScript
+    ".js": ["prettier", "eslint"],
+    ".jsx": ["prettier", "eslint"],
+    ".ts": ["prettier", "eslint"],
+    ".tsx": ["prettier", "eslint"],
+    # JSON
+    ".json": ["prettier", "jq"],
+    # Markdown
+    ".md": ["prettier"],
+    # Shell
+    ".sh": ["shfmt", "shellcheck"],
+    ".bash": ["shfmt", "shellcheck"],
+    ".zsh": ["shfmt", "shellcheck"],
+    # Go
+    ".go": ["gofmt"],
+    # Rust
+    ".rs": ["rustfmt"],
+    # C/C++
+    ".c": ["clang-format"],
+    ".cpp": ["clang-format"],
+    ".h": ["clang-format"],
+    ".hpp": ["clang-format"],
+    # HTML/CSS
+    ".html": ["prettier"],
+    ".css": ["prettier"],
+    ".scss": ["prettier"],
+    # YAML
+    ".yaml": ["prettier"],
+    ".yml": ["prettier"],
+    # Dockerfile
+    "Dockerfile": ["hadolint"],
+    # XML
+    ".xml": ["xmllint"],
+    # Ruby
+    ".rb": ["rubocop"],
+    # Java
+    ".java": ["google-java-format"],
+    # PHP
+    ".php": ["php-cs-fixer"],
+    # Swift
+    ".swift": ["swiftformat"],
+}
+
+async def check_tool_installed(tool_name: str) -> bool:
+    """Check if a tool is installed via globaltools or in PATH."""
+    try:
+        # First try using globaltools to check if it's installed
+        process = await asyncio.create_subprocess_exec(
+            "globaltools", "search", tool_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, _ = await process.communicate()
+        
+        # If the tool was found in globaltools
+        if tool_name in stdout.decode() and "Found" in stdout.decode():
+            return True
+        
+        # Check if the tool is in PATH
+        if shutil.which(tool_name):
+            return True
+            
+        return False
+    except Exception:
+        # If globaltools is not available, check PATH directly
+        return bool(shutil.which(tool_name))
+
+async def install_tool(tool_name: str) -> bool:
+    """Install a tool using globaltools."""
+    try:
+        console.print(f"[yellow]Installing {tool_name}...[/yellow]")
+        
+        process = await asyncio.create_subprocess_exec(
+            "globaltools", "install", tool_name,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, stderr = await process.communicate()
+        
+        if process.returncode == 0:
+            console.print(f"[green]Successfully installed {tool_name}[/green]")
+            return True
+        else:
+            console.print(f"[red]Failed to install {tool_name}: {stderr.decode()}[/red]")
+            return False
+    except Exception as e:
+        console.print(f"[red]Error installing {tool_name}: {str(e)}[/red]")
+        return False
+
+async def format_file(file_path: Path) -> Tuple[bool, List[str]]:
+    """Format a single file using the appropriate formatter based on extension."""
+    file_ext = file_path.suffix.lower()
+    
+    # Handle Dockerfile (no extension)
+    if file_path.name == "Dockerfile":
+        file_ext = "Dockerfile"
+    
+    messages = []
+    success = True
+    
+    # Get the appropriate formatters for this file type
+    formatters = FILE_TYPE_FORMATTERS.get(file_ext, [])
+    
+    if not formatters:
+        messages.append(f"No formatter configured for {file_ext} files")
+        return False, messages
+    
+    for formatter in formatters:
+        # Check if formatter is installed
+        is_installed = await check_tool_installed(formatter)
+        
+        if not is_installed:
+            install_success = await install_tool(formatter)
+            if not install_success:
+                messages.append(f"Skipping {formatter} (not installed)")
+                continue
+        
+        try:
+            # Format the file using the appropriate tool
+            if formatter == "black":
+                process = await asyncio.create_subprocess_exec(
+                    "black", "--quiet", str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            elif formatter == "isort":
+                process = await asyncio.create_subprocess_exec(
+                    "isort", "--quiet", str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            elif formatter == "ruff":
+                process = await asyncio.create_subprocess_exec(
+                    "ruff", "check", "--fix", "--quiet", str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            elif formatter == "prettier":
+                process = await asyncio.create_subprocess_exec(
+                    "prettier", "--write", "--quiet", str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            elif formatter == "shfmt":
+                process = await asyncio.create_subprocess_exec(
+                    "shfmt", "-w", str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            elif formatter == "gofmt":
+                process = await asyncio.create_subprocess_exec(
+                    "gofmt", "-w", str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            elif formatter == "rustfmt":
+                process = await asyncio.create_subprocess_exec(
+                    "rustfmt", str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            elif formatter == "clang-format":
+                process = await asyncio.create_subprocess_exec(
+                    "clang-format", "-i", str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            elif formatter == "shellcheck":
+                process = await asyncio.create_subprocess_exec(
+                    "shellcheck", str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            elif formatter == "jq":
+                with open(file_path, 'r') as f:
+                    content = f.read()
+                process = await asyncio.create_subprocess_exec(
+                    "jq", ".",
+                    stdin=asyncio.subprocess.PIPE,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+                stdout, stderr = await process.communicate(content.encode())
+                if process.returncode == 0:
+                    with open(file_path, 'w') as f:
+                        f.write(stdout.decode())
+                    continue
+            elif formatter == "hadolint":
+                process = await asyncio.create_subprocess_exec(
+                    "hadolint", str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            elif formatter == "xmllint":
+                process = await asyncio.create_subprocess_exec(
+                    "xmllint", "--format", "--output", str(file_path), str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            else:
+                # Fall back to a generic run for other formatters
+                process = await asyncio.create_subprocess_exec(
+                    formatter, str(file_path),
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE
+                )
+            
+            # Wait for process to complete (unless already completed by jq)
+            if formatter != "jq":
+                stdout, stderr = await process.communicate()
+            
+            if process.returncode != 0:
+                success = False
+                messages.append(f"{formatter} failed: {stderr.decode()}")
+            else:
+                messages.append(f"{formatter} successfully formatted {file_path.name}")
+                
+        except Exception as e:
+            success = False
+            messages.append(f"Error running {formatter}: {str(e)}")
+    
+    return success, messages
+
+async def format_directory(directory_path: Path, recursive: bool = True) -> Dict[str, int]:
+    """Format all supported files in a directory."""
+    stats = {
+        "total_files": 0,
+        "formatted_files": 0,
+        "skipped_files": 0,
+        "error_files": 0
+    }
+    
+    pattern = "**/*" if recursive else "*"
+    
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        console=console
+    ) as progress:
+        task = progress.add_task(f"[cyan]Scanning directory {directory_path}...", total=None)
+        
+        # Collect all files first
+        all_files = list(directory_path.glob(pattern))
+        formatted_files = []
+        
+        # Filter to supported files
+        for file_path in all_files:
+            if file_path.is_file():
+                ext = file_path.suffix.lower()
+                if ext in FILE_TYPE_FORMATTERS or file_path.name == "Dockerfile":
+                    formatted_files.append(file_path)
+                    stats["total_files"] += 1
+        
+        progress.update(task, description=f"[cyan]Found {stats['total_files']} files to format", total=len(formatted_files))
+        
+        # Process each file
+        for i, file_path in enumerate(formatted_files):
+            progress.update(task, description=f"[cyan]Formatting {file_path.name}...", completed=i)
+            
+            success, messages = await format_file(file_path)
+            
+            for message in messages:
+                console.print(f"  {message}")
+                
+            if success:
+                stats["formatted_files"] += 1
+            else:
+                stats["error_files"] += 1
+            
+            progress.update(task, completed=i+1)
+    
+    return stats
+
+async def main():
+    """Main entry point for the exporter tool."""
+    try:
+        # Get the repository path (default to current directory)
+        repo_path = os.getcwd()
+        
+        console.print(Panel.fit(
+            "[bold cyan]Exporter Tool[/bold cyan]\n"
+            "[yellow]Integrate with globaltools for better code formatting[/yellow]",
+            border_style="blue"
+        ))
+
+        # Check if the globaltools command is available
+        has_globaltools = shutil.which("globaltools") is not None
+        if not has_globaltools:
+            console.print("[yellow]Warning: globaltools not found in PATH. Some functionality will be limited.[/yellow]")
+        
+        # First handle the format command if specified
+        if len(sys.argv) > 1 and sys.argv[1] == "format":
+            target_path = Path(".")
+            recursive = True
+            show_report = False
+            
+            # Process arguments
+            args = sys.argv[2:]
+            i = 0
+            while i < len(args):
+                if args[i] == "--no-recursive":
+                    recursive = False
+                elif args[i] == "--report":
+                    show_report = True
+                else:
+                    # Assume it's a path
+                    target_path = Path(args[i])
+                i += 1
+            
+            if target_path.is_file():
+                console.print(f"[cyan]Formatting single file: {target_path}[/cyan]")
+                success, messages = await format_file(target_path)
+                for message in messages:
+                    console.print(message)
+                
+                if success:
+                    console.print(f"[green]Successfully formatted {target_path}[/green]")
+                    
+                    # Show a detailed report of changes if requested
+                    if show_report:
+                        try:
+                            # If git is available, try to show diff
+                            if Path(target_path.parent / ".git").exists():
+                                console.print("\n[bold]Git Diff Report:[/bold]")
+                                process = await asyncio.create_subprocess_exec(
+                                    "git", "diff", "--color", str(target_path),
+                                    stdout=asyncio.subprocess.PIPE,
+                                    stderr=asyncio.subprocess.PIPE
+                                )
+                                stdout, _ = await process.communicate()
+                                if stdout:
+                                    console.print(stdout.decode())
+                                else:
+                                    console.print("[yellow]No changes detected by git[/yellow]")
+                            else:
+                                console.print("[yellow]Git repository not detected. Cannot show detailed diff.[/yellow]")
+                        except Exception as e:
+                            console.print(f"[red]Error generating diff report: {str(e)}[/red]")
+                else:
+                    console.print(f"[yellow]Some formatters had issues with {target_path}[/yellow]")
+            
+            elif target_path.is_dir():
+                console.print(f"[cyan]Formatting directory: {target_path} {'(recursive)' if recursive else ''}[/cyan]")
+                stats = await format_directory(target_path, recursive)
+                
+                console.print("\n[bold]Formatting complete:[/bold]")
+                console.print(f"  Total files: {stats['total_files']}")
+                console.print(f"  [green]Formatted successfully: {stats['formatted_files']}[/green]")
+                console.print(f"  [yellow]Skipped: {stats['skipped_files']}[/yellow]")
+                console.print(f"  [red]Errors: {stats['error_files']}[/red]")
+                
+                # Show a detailed report of changes if requested
+                if show_report and stats['formatted_files'] > 0:
+                    try:
+                        # If git is available, try to show overall diff
+                        if Path(target_path / ".git").exists():
+                            console.print("\n[bold]Git Diff Summary:[/bold]")
+                            process = await asyncio.create_subprocess_exec(
+                                "git", "diff", "--stat", "--color",
+                                stdout=asyncio.subprocess.PIPE,
+                                stderr=asyncio.subprocess.PIPE
+                            )
+                            stdout, _ = await process.communicate()
+                            if stdout:
+                                console.print(stdout.decode())
+                                
+                                # Ask if user wants to see full diff
+                                show_full = input("\nShow full diff? (y/n): ").lower().startswith('y')
+                                if show_full:
+                                    process = await asyncio.create_subprocess_exec(
+                                        "git", "diff", "--color",
+                                        stdout=asyncio.subprocess.PIPE,
+                                        stderr=asyncio.subprocess.PIPE
+                                    )
+                                    stdout, _ = await process.communicate()
+                                    console.print(stdout.decode())
+                            else:
+                                console.print("[yellow]No changes detected by git[/yellow]")
+                        else:
+                            console.print("[yellow]Git repository not detected. Cannot show detailed diff.[/yellow]")
+                    except Exception as e:
+                        console.print(f"[red]Error generating diff report: {str(e)}[/red]")
+            
+            else:
+                console.print(f"[red]Error: Path not found: {target_path}[/red]")
+                sys.exit(1)
+        
+        # Otherwise, run the original UI
+        else:
+            # Initialize and run the UI
+            ui = ExporterUI(repo_path)
+            await ui.main_menu()
+        
+    except KeyboardInterrupt:
+        console.print("\n[yellow]Exiting...[/yellow]")
+    except Exception as e:
+        console.print(f"\n[red]Error: {e}[/red]")
+        sys.exit(1)
+
+if __name__ == "__main__":
+    asyncio.run(main()) 
