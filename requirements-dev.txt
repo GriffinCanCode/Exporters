@@ -1,0 +1,52 @@
+# Development requirements (extends requirements.txt)
+-r requirements.txt
+
+# Additional development tools
+ipython>=8.0.0
+jupyter>=1.0.0
+notebook>=6.5.0
+
+# Debugging and profiling
+pdb++>=0.10.0
+line_profiler>=4.0.0
+memory_profiler>=0.60.0
+
+# Testing enhancements
+pytest-cov>=4.0.0
+pytest-xdist>=3.0.0
+pytest-mock>=3.10.0
+pytest-benchmark>=4.0.0
+coverage>=7.0.0
+
+# Code quality and linting (development versions)
+flake8>=6.0.0
+pylint>=2.17.0
+vulture>=2.7.0
+safety>=2.3.0
+
+# Documentation development
+sphinx-autobuild>=2021.3.14
+sphinx-copybutton>=0.5.2
+furo>=2023.3.27
+
+# Build and packaging
+build>=0.10.0
+twine>=4.0.0
+wheel>=0.40.0
+setuptools>=67.0.0
+
+# Git hooks and pre-commit
+gitpython>=3.1.0
+detect-secrets>=1.4.0
+
+# Performance monitoring
+py-spy>=0.3.14
+scalene>=1.5.0
+
+# Type checking enhancements
+mypy-extensions>=1.0.0
+typed-ast>=1.5.0; python_version<"3.8"
+
+# Utilities
+tqdm>=4.65.0
+python-dotenv>=1.0.0 
